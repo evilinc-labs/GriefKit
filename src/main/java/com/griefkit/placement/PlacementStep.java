@@ -21,4 +21,6 @@ public class PlacementStep {
     public PlacementStep(BlockPos pos, Block block) {
         this(pos, block, pos, Direction.UP);
     }
+
+    // @todo readd suppost position for wither skulls, otherwise wither is fucky w placement manager support pos
 }

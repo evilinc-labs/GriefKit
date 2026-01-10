@@ -7,6 +7,9 @@ import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 
 import java.util.function.Predicate;
 
+
+//@todo add silent swap and make inv management not shit
+
 public class InventoryManager {
     public int findHotbarSlot(PlayerInventory inv, Predicate<Item> match) {
         for (int i = 0; i < 9; i++) {

@@ -35,7 +35,7 @@ public class GriefKit extends MeteorAddon {
         });
 
         // Modules
-        Modules.get().add(new Wither());
+        //Modules.get().add(new Wither());
         Modules.get().add(new Cross());
 
         // HUD
