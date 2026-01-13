@@ -1,11 +1,37 @@
-// leonetics 2025 evil inc
-
+/*
+ * Decompiled with CFR 0.152.
+ *
+ * Could not load the following classes:
+ *  meteordevelopment.meteorclient.events.world.TickEvent$Pre
+ *  meteordevelopment.meteorclient.settings.BlockSetting$Builder
+ *  meteordevelopment.meteorclient.settings.BoolSetting$Builder
+ *  meteordevelopment.meteorclient.settings.DoubleSetting$Builder
+ *  meteordevelopment.meteorclient.settings.IntSetting$Builder
+ *  meteordevelopment.meteorclient.settings.Setting
+ *  meteordevelopment.meteorclient.settings.SettingGroup
+ *  meteordevelopment.meteorclient.systems.modules.Module
+ *  meteordevelopment.orbit.EventHandler
+ *  net.minecraft.class_2246
+ *  net.minecraft.class_2248
+ *  net.minecraft.class_2338
+ *  net.minecraft.class_2350
+ *  net.minecraft.class_2374
+ *  net.minecraft.class_243
+ *  net.minecraft.class_3532
+ *  net.minecraft.class_746
+ */
 package com.griefkit.modules;
 
 import com.griefkit.GriefKit;
 import com.griefkit.placement.PlacementStep;
+import java.util.Random;
 import meteordevelopment.meteorclient.events.world.TickEvent;
-import meteordevelopment.meteorclient.settings.*;
+import meteordevelopment.meteorclient.settings.BlockSetting;
+import meteordevelopment.meteorclient.settings.BoolSetting;
+import meteordevelopment.meteorclient.settings.DoubleSetting;
+import meteordevelopment.meteorclient.settings.IntSetting;
+import meteordevelopment.meteorclient.settings.Setting;
+import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
@@ -14,191 +40,155 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Position;
 import net.minecraft.util.math.Vec3d;
 
-import java.util.Random;
-
-/**
- * Auto Highway Clogger
- * - Places blocks behind the player randomly within a "highway box" (width/height/depth).
- * - Uses movement vector for behind/right so diagonals behave naturally (no x/z mishaps).
- * - Continuously schedules new placements when the player moves.
- */
-public class HighwayClogger extends Module {
-    private final SettingGroup sgGeneral = settings.getDefaultGroup();
-
-    private final Setting<Block> block = sgGeneral.add(new BlockSetting.Builder()
-        .name("block")
-        .description("Block to place for clogging.")
-        .defaultValue(Blocks.OBSIDIAN)
-        .build()
-    );
-
-    private final Setting<Integer> backMin = sgGeneral.add(new IntSetting.Builder()
-        .name("back-min")
-        .description("Minimum blocks behind player to place.")
-        .defaultValue(2)
-        .min(1)
-        .max(16)
-        .build()
-    );
-
-    private final Setting<Integer> backMax = sgGeneral.add(new IntSetting.Builder()
-        .name("back-max")
-        .description("Maximum blocks behind player to place.")
-        .defaultValue(6)
-        .min(1)
-        .max(32)
-        .build()
-    );
-
-    private final Setting<Integer> halfWidth = sgGeneral.add(new IntSetting.Builder()
-        .name("half-width")
-        .description("Horizontal half-width of the clog box (left/right). 2 => width 5.")
-        .defaultValue(2)
-        .min(0)
-        .max(8)
-        .build()
-    );
-
-    private final Setting<Integer> height = sgGeneral.add(new IntSetting.Builder()
-        .name("height")
-        .description("Vertical range (0..height-1) above the base Y.")
-        .defaultValue(3)
-        .min(1)
-        .max(6)
-        .build()
-    );
-
-    private final Setting<Integer> placementsPerMove = sgGeneral.add(new IntSetting.Builder()
-        .name("placements-per-move")
-        .description("How many placements to schedule each time you move enough.")
-        .defaultValue(6)
-        .min(1)
-        .max(20)
-        .build()
-    );
-
-    private final Setting<Double> moveThreshold = sgGeneral.add(new DoubleSetting.Builder()
-        .name("move-threshold")
-        .description("Distance (blocks) you must move before scheduling more placements.")
-        .defaultValue(2.5)
-        .min(0.05)
-        .max(2.0)
-        .build()
-    );
-
-    private final Setting<Double> chance = sgGeneral.add(new DoubleSetting.Builder()
-        .name("chance")
-        .description("Chance per scheduled attempt to actually queue (adds randomness).")
-        .defaultValue(1)
-        .min(0.0)
-        .max(1.0)
-        .build()
-    );
-
-    private final Setting<Boolean> requireReplaceableNow = sgGeneral.add(new BoolSetting.Builder()
-        .name("require-replaceable-now")
-        .description("Only queue blocks if the world is currently replaceable at the target.")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final Random rng = new Random(); // deterministic-ish
-
-    private Vec3d lastPos = null;
+public class HighwayClogger
+    extends Module {
+    private final SettingGroup sgGeneral;
+    private final Setting<Block> block;
+    private final Setting<Integer> backMin;
+    private final Setting<Integer> backMax;
+    private final Setting<Integer> halfWidth;
+    private final Setting<Integer> height;
+    private final Setting<Integer> placementsPerMove;
+    private final Setting<Double> moveThreshold;
+    private final Setting<Double> chance;
+    private final Setting<Boolean> requireReplaceableNow;
+    private final Random rng;
+    private Vec3d lastPos;
 
     public HighwayClogger() {
-        super(GriefKit.CATEGORY, "HighwayClogger", "Randomly clogs behind you.");
+        super(GriefKit.CATEGORY, "HighwayClogger", "Randomly clogs behind youu.");
+        this.sgGeneral = this.settings.getDefaultGroup();
+        this.block = this.sgGeneral.add(new BlockSetting.Builder()
+            .name("block")
+            .description("Block to place for clogging.")
+            .defaultValue(Blocks.OBSIDIAN)
+            .build());
+        this.backMin = this.sgGeneral.add(new IntSetting.Builder()
+            .name("back-min")
+            .description("Minimum blocks behind player to place.")
+            .defaultValue(2)
+            .min(1).max(16)
+            .build());
+        this.backMax = this.sgGeneral.add(new IntSetting.Builder()
+            .name("back-max")
+            .description("Maximum blocks behind player to place.")
+            .defaultValue(6)
+            .min(1).max(32)
+            .build());
+        this.halfWidth = this.sgGeneral.add(new IntSetting.Builder()
+            .name("half-width")
+            .description("Horizontal half-width of the clog box (left/right). 2 => width 5.")
+            .defaultValue(2)
+            .min(0).max(8)
+            .build());
+        this.height = this.sgGeneral.add(new IntSetting.Builder()
+            .name("height")
+            .description("Vertical range (0..height-1) above the base Y.")
+            .defaultValue(3)
+            .min(1).max(6)
+            .build());
+        this.placementsPerMove = this.sgGeneral.add(new IntSetting.Builder()
+            .name("placements-per-move")
+            .description("How many placements to schedule each time you move enough.")
+            .defaultValue(6)
+            .min(1).max(20)
+            .build());
+        this.moveThreshold = this.sgGeneral.add(new DoubleSetting.Builder()
+            .name("move-threshold")
+            .description("Distance (blocks) you must move before scheduling more placements.")
+            .defaultValue(2.5)
+            .min(0.05).max(2.0)
+            .build());
+        this.chance = this.sgGeneral.add(new DoubleSetting.Builder()
+            .name("chance")
+            .description("Chance per scheduled attempt to actually enqueue (adds randomness).")
+            .defaultValue(1.0)
+            .min(0.0).max(1.0)
+            .build());
+        this.requireReplaceableNow = this.sgGeneral.add(new BoolSetting.Builder()
+            .name("require-replaceable-now")
+            .description("Only enqueue if the world is currently replaceable at the target.")
+            .defaultValue(true)
+            .build());
+        this.rng = new Random();
+        this.lastPos = null;
     }
 
-    @Override
     public void onActivate() {
-        lastPos = null;
-        if (mc.player == null || mc.world == null) {
-            warning("Player/world not loaded");
-            toggle();
+        this.lastPos = null;
+        if (this.mc.player == null || this.mc.world == null) {
+            this.warning("Player/world not loaded", new Object[0]);
+            this.toggle();
         }
     }
 
-    @Override
     public void onDeactivate() {
-        lastPos = null;
+        this.lastPos = null;
     }
 
     @EventHandler
     private void onTick(TickEvent.Pre event) {
-        if (mc.player == null || mc.world == null) return;
-
-        ClientPlayerEntity p = mc.player;
-        Vec3d now = p.getPos();
-
-        if (lastPos == null) {
-            lastPos = now;
-            // schedule an initial burst so it works immediately on toggle
-            scheduleBatch(p, placementsPerMove.get());
+        if (this.mc.player == null || this.mc.world == null) {
             return;
         }
-
-        double moved = now.distanceTo(lastPos);
-        if (moved >= moveThreshold.get()) {
-            lastPos = now;
-            scheduleBatch(p, placementsPerMove.get());
+        ClientPlayerEntity p = this.mc.player;
+        Vec3d now = p.getPos();
+        if (this.lastPos == null) {
+            this.lastPos = now;
+            this.scheduleBatch(p, (Integer)this.placementsPerMove.get());
+            return;
+        }
+        double moved = now.distanceTo(this.lastPos);
+        if (moved >= (Double)this.moveThreshold.get()) {
+            this.lastPos = now;
+            this.scheduleBatch(p, (Integer)this.placementsPerMove.get());
         }
     }
 
     private void scheduleBatch(ClientPlayerEntity p, int count) {
-        if (mc.world == null) return;
-
+        Vec3d forward;
+        if (this.mc.world == null) {
+            return;
+        }
         Vec3d vel = p.getVelocity();
         Vec3d moveDir = new Vec3d(vel.x, 0.0, vel.z);
-
-        Vec3d forward;
-        if (moveDir.lengthSquared() > 1.0e-6) {
+        if (moveDir.lengthSquared() > 1.0E-6) {
             forward = moveDir.normalize();
         } else {
             float yaw = p.getYaw();
-            float yawRad = yaw * MathHelper.RADIANS_PER_DEGREE;
-            forward = new Vec3d(-MathHelper.sin(yawRad), 0.0, MathHelper.cos(yawRad)).normalize();
+            float yawRad = yaw * ((float)Math.PI / 180);
+            forward = new Vec3d((double)(-MathHelper.sin((float)yawRad)), 0.0, (double)MathHelper.cos((float)yawRad)).normalize();
         }
-
         Vec3d behind = forward.negate();
         Vec3d right = new Vec3d(-behind.z, 0.0, behind.x);
-
         BlockPos base = p.getBlockPos();
-
-        int minB = Math.min(backMin.get(), backMax.get());
-        int maxB = Math.max(backMin.get(), backMax.get());
-
-        int w = halfWidth.get();
-        int h = height.get();
-
-        Block placeBlock = block.get();
-
-        for (int i = 0; i < count; i++) {
-            if (rng.nextDouble() > chance.get()) continue;
-
-            int back = randInt(minB, maxB);
-            int lateral = (w == 0) ? 0 : randInt(-w, w);
-            int up = (h <= 1) ? 0 : randInt(0, h - 1);
-
-            Vec3d offset = behind.multiply(back).add(right.multiply(lateral)).add(0.0, up, 0.0);
-            BlockPos target = BlockPos.ofFloored(new Vec3d(base.getX() + 0.5, base.getY(), base.getZ() + 0.5).add(offset));
-
-            if (target.getX() == base.getX() && target.getZ() == base.getZ() && target.getY() == base.getY()) continue;
-
-            if (requireReplaceableNow.get()) {
-                if (!mc.world.getBlockState(target).isReplaceable()) continue;
-            }
-
+        int minB = Math.min((Integer)this.backMin.get(), (Integer)this.backMax.get());
+        int maxB = Math.max((Integer)this.backMin.get(), (Integer)this.backMax.get());
+        int w = (Integer)this.halfWidth.get();
+        int h = (Integer)this.height.get();
+        Block placeBlock = (Block)this.block.get();
+        for (int i = 0; i < count; ++i) {
+            if (this.rng.nextDouble() > (Double)this.chance.get()) continue;
+            int back = this.randInt(minB, maxB);
+            int lateral = w == 0 ? 0 : this.randInt(-w, w);
+            int up = h <= 1 ? 0 : this.randInt(0, h - 1);
+            Vec3d offset = behind.multiply((double)back).add(right.multiply((double)lateral)).add(0.0, (double)up, 0.0);
+            BlockPos target = BlockPos.ofFloored((Position)new Vec3d((double)base.getX() + 0.5, (double)base.getY(), (double)base.getZ() + 0.5).add(offset));
+            if (target.getX() == base.getX() && target.getZ() == base.getZ() && target.getY() == base.getY() || ((Boolean)this.requireReplaceableNow.get()).booleanValue() && !this.mc.world.getBlockState(target).isReplaceable()) continue;
             GriefKit.PLACEMENT.enqueue(new PlacementStep(target, placeBlock, Direction.UP));
         }
     }
 
     private int randInt(int a, int b) {
-        if (a == b) return a;
+        if (a == b) {
+            return a;
+        }
         int lo = Math.min(a, b);
         int hi = Math.max(a, b);
-        return lo + rng.nextInt(hi - lo + 1);
+        return lo + this.rng.nextInt(hi - lo + 1);
     }
 }
+

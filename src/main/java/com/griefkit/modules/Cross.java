@@ -1,256 +1,330 @@
-// leonetics 2025 evil inc
-
 package com.griefkit.modules;
 
 import com.griefkit.GriefKit;
-import com.griefkit.managers.PlacementManager;
 import com.griefkit.placement.PlacementStep;
+
+import java.util.ArrayList;
+import java.util.List;
+
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.misc.Keybind;
+import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
+
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.BlockItem;
-import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
-import net.minecraft.network.packet.c2s.play.PlayerInteractBlockC2SPacket;
-import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
-import net.minecraft.util.Hand;
+import net.minecraft.item.Item;
 import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.*;
 
-import java.util.ArrayList;
-import java.util.List;
-
+/**
+ * Cross module
+ *
+ * What it does:
+ * - On key press, computes a 6-block “cross” pattern:
+ *   - A 4-long stem
+ *   - Plus 2 arms on the 2nd block of the stem (s1)
+ * - Supports vertical and horizontal orientation, and can anchor near the crosshair.
+ * - Enqueues missing steps into GriefKit.PLACEMENT (PlacementManager) immediately.
+ * - Renders a preview of the plan every frame when render is enabled.
+ *
+ * Pattern definition (6 blocks total):
+ *   s0 - s1 - s2 - s3    (stem, 4 long)
+ *          |
+ *        l   r           (arms at s1, perpendicular to facing)
+ *
+ * Notes:
+ * - “vertical” means stem goes UP from base position (y+)
+ * - “horizontal” means stem goes FORWARD along facing direction
+ */
 public class Cross extends Module {
-    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
+    // ----------------------
+    // Settings: General
+    // ----------------------
+    private final SettingGroup sgGeneral;
 
-    private final Setting<Block> block = sgGeneral.add(new BlockSetting.Builder()
-        .name("block")
-        .description("Block used to build the cross.")
-        .defaultValue(Blocks.OBSIDIAN)
-        .build()
-    );
+    /** Block type used for the cross (default obsidian). */
+    private final Setting<Block> block;
 
-    private final Setting<Boolean> silentMode = sgGeneral.add(new BoolSetting.Builder()
-        .name("silent-notifications")
-        .description("Remove notifications.")
-        .defaultValue(false)
-        .build()
-    );
+    /** Toggle notifications. */
+    private final Setting<Boolean> silentMode;
 
-    private final Setting<Keybind> crossPlace = sgGeneral.add(new KeybindSetting.Builder()
-        .name("cross-place")
-        .description("Places a cross instantly.")
-        .defaultValue(Keybind.none())
-        .build()
-    );
+    /** Keybind for placing the cross. */
+    private final Setting<Keybind> crossPlace;
 
-    private final Setting<Boolean> cursorPlacement = sgGeneral.add(new BoolSetting.Builder()
-        .name("cursor-placement")
-        .description("Anchor crosses around your crosshair instead of only in front of you.")
-        .defaultValue(true)
-        .build()
-    );
+    /**
+     * Cursor placement:
+     * - if enabled, attempt to anchor around crosshair hit, scanning in dx/dz around that point
+     * - if disabled, place 2 blocks in front of you
+     */
+    private final Setting<Boolean> cursorPlacement;
 
-    private final Setting<Double> cursorMaxDistance = sgGeneral.add(new DoubleSetting.Builder()
-        .name("cursor-max-distance")
-        .description("Maximum distance from you for cursor-based cross placement.")
-        .defaultValue(6.0)
-        .min(1.0)
-        .max(8.0)
-        .build()
-    );
+    /** Max allowed distance (from player eye) for cursor-anchored crosses. */
+    private final Setting<Double> cursorMaxDistance;
 
-    private final Setting<Integer> cursorSearchRadius = sgGeneral.add(new IntSetting.Builder()
-        .name("cursor-search-radius")
-        .description("Horizontal search radius around the cursor hit to find a valid cross anchor.")
-        .defaultValue(2)
-        .min(0)
-        .max(8)
-        .build()
-    );
+    /** Horizontal scan radius around cursor hit for anchor search. */
+    private final Setting<Integer> cursorSearchRadius;
 
-    private final Setting<Boolean> elytraMode = sgGeneral.add(new BoolSetting.Builder()
-        .name("elytra-mode")
-        .description("Disables cursor placement and anchors the cross 2 blocks behind you (useful while ebouncing)")
-        .defaultValue(false)
-        .build()
-    );
+    /**
+     * Elytra mode:
+     * - disables cursor placement
+     * - anchors the cross 2 blocks behind you
+     */
+    private final Setting<Boolean> elytraMode;
 
-    private final SettingGroup sgRender = this.settings.createGroup("Render");
+    // ----------------------
+    // Settings: Render
+    // ----------------------
+    private final SettingGroup sgRender;
+    private final Setting<Boolean> render;
+    private final Setting<ShapeMode> shapeMode;
 
-    private final Setting<Boolean> render = sgRender.add(new BoolSetting.Builder()
-        .name("render")
-        .description("Render the planned cross structure.")
-        .defaultValue(true)
-        .build()
-    );
+    // Colors for not-yet-placed vs already-placed blocks
+    private final Setting<SettingColor> sideColor;
+    private final Setting<SettingColor> lineColor;
+    private final Setting<SettingColor> placedSideColor;
+    private final Setting<SettingColor> placedLineColor;
 
-    private final Setting<ShapeMode> shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
-        .name("shape-mode")
-        .description("How the boxes are rendered.")
-        .defaultValue(ShapeMode.Both)
-        .build()
-    );
+    // ----------------------
+    // Runtime state
+    // ----------------------
+    /** Planned blocks (6 positions). Recomputed for preview and for placement. */
+    private final List<PlacementStep> steps;
 
-    private final Setting<SettingColor> sideColor = sgRender.add(new ColorSetting.Builder()
-        .name("side-color")
-        .description("Color of the box sides for blocks that are not yet placed.")
-        .defaultValue(new SettingColor(255, 50, 50, 25))
-        .build()
-    );
-
-    private final Setting<SettingColor> lineColor = sgRender.add(new ColorSetting.Builder()
-        .name("line-color")
-        .description("Outline color for blocks that are not yet placed.")
-        .defaultValue(new SettingColor(255, 50, 50, 255))
-        .build()
-    );
-
-    private final Setting<SettingColor> placedSideColor = sgRender.add(new ColorSetting.Builder()
-        .name("placed-side-color")
-        .description("Side color for blocks that are already placed.")
-        .defaultValue(new SettingColor(50, 255, 50, 25))
-        .build()
-    );
-
-    private final Setting<SettingColor> placedLineColor = sgRender.add(new ColorSetting.Builder()
-        .name("placed-line-color")
-        .description("Outline color for blocks that are already placed.")
-        .defaultValue(new SettingColor(50, 255, 50, 255))
-        .build()
-    );
-
-    private final List<PlacementStep> steps = new ArrayList<>();
-    private boolean lastPlaceKeyDown = false;
-
-    private enum CrossOrientation {
-        VERTICAL,
-        HORIZONTAL
-    }
+    /** Edge detection for the keybind (press once). */
+    private boolean lastPlaceKeyDown;
 
     public Cross() {
         super(GriefKit.CATEGORY, "Cross", "Builds a 4-long 2-arm cross.");
+
+        // General group
+        this.sgGeneral = this.settings.getDefaultGroup();
+
+        this.block = this.sgGeneral.add(new BlockSetting.Builder()
+            .name("block")
+            .description("Block used to build the cross.")
+            .defaultValue(Blocks.OBSIDIAN)
+            .build());
+
+        this.silentMode = this.sgGeneral.add(new BoolSetting.Builder()
+            .name("silent-notifications")
+            .description("Remove notifications.")
+            .defaultValue(false)
+            .build());
+
+        this.crossPlace = this.sgGeneral.add(new KeybindSetting.Builder()
+            .name("cross-place")
+            .description("Places a cross instantly.")
+            .defaultValue(Keybind.none())
+            .build());
+
+        this.cursorPlacement = this.sgGeneral.add(new BoolSetting.Builder()
+            .name("cursor-placement")
+            .description("Anchor crosses around your crosshair instead of only in front of you.")
+            .defaultValue(true)
+            .build());
+
+        this.cursorMaxDistance = this.sgGeneral.add(new DoubleSetting.Builder()
+            .name("cursor-max-distance")
+            .description("Maximum distance from you for cursor-based cross placement.")
+            .defaultValue(6.0)
+            .min(1.0).max(8.0)
+            .build());
+
+        this.cursorSearchRadius = this.sgGeneral.add(new IntSetting.Builder()
+            .name("cursor-search-radius")
+            .description("Horizontal search radius around the cursor hit to find a valid cross anchor.")
+            .defaultValue(2)
+            .min(0).max(8)
+            .build());
+
+        this.elytraMode = this.sgGeneral.add(new BoolSetting.Builder()
+            .name("elytra-mode")
+            .description("Disables cursor placement and anchors the cross 2 blocks behind you (useful while ebouncing)")
+            .defaultValue(false)
+            .build());
+
+        // Render group
+        this.sgRender = this.settings.createGroup("Render");
+
+        this.render = this.sgRender.add(new BoolSetting.Builder()
+            .name("render")
+            .description("Render the planned cross structure.")
+            .defaultValue(true)
+            .build());
+
+        this.shapeMode = this.sgRender.add(new EnumSetting.Builder<ShapeMode>()
+            .name("shape-mode")
+            .description("How the boxes are rendered.")
+            .defaultValue(ShapeMode.Both)
+            .build());
+
+        this.sideColor = this.sgRender.add(new ColorSetting.Builder()
+            .name("side-color")
+            .description("Color of the box sides for blocks that are not yet placed.")
+            .defaultValue(new SettingColor(255, 50, 50, 25))
+            .build());
+
+        this.lineColor = this.sgRender.add(new ColorSetting.Builder()
+            .name("line-color")
+            .description("Outline color for blocks that are not yet placed.")
+            .defaultValue(new SettingColor(255, 50, 50, 255))
+            .build());
+
+        this.placedSideColor = this.sgRender.add(new ColorSetting.Builder()
+            .name("placed-side-color")
+            .description("Side color for blocks that are already placed.")
+            .defaultValue(new SettingColor(50, 255, 50, 25))
+            .build());
+
+        this.placedLineColor = this.sgRender.add(new ColorSetting.Builder()
+            .name("placed-line-color")
+            .description("Outline color for blocks that are already placed.")
+            .defaultValue(new SettingColor(50, 255, 50, 255))
+            .build());
+
+        this.steps = new ArrayList<>();
+        this.lastPlaceKeyDown = false;
     }
 
-    @Override
+    /**
+     * Reset state. If world/player isn't ready, disable the module to prevent NPE spam.
+     */
     public void onActivate() {
-        steps.clear();
-
-        if (mc.player == null || mc.world == null) {
-            warning("Player/world not loaded");
-            toggle();
+        this.steps.clear();
+        if (this.mc.player == null || this.mc.world == null) {
+            this.warning("Player/world not loaded");
+            this.toggle();
         }
     }
 
-    @Override
     public void onDeactivate() {
-        steps.clear();
+        this.steps.clear();
     }
 
+    /**
+     * Render handler does both:
+     * - keybind polling and triggering enqueue
+     * - preview rendering of the planned cross
+     */
     @EventHandler
     private void onRender(Render3DEvent event) {
-        if (mc.world == null) return;
+        if (this.mc.world == null) return;
 
-        boolean placeKeyDown = crossPlace.get().isPressed();
+        boolean placeKeyDown = this.crossPlace.get().isPressed();
 
-        // edge-press to place instantly
-        if (placeKeyDown && !lastPlaceKeyDown) {
-            if (!hasRequiredMaterialsInHotbar()) {
-                if (!silentMode.get()) warning("Not enough blocks in hotbar to build a cross (need 6)");
+        // Rising edge: attempt to place cross
+        if (placeKeyDown && !this.lastPlaceKeyDown) {
+            if (!this.hasRequiredMaterialsInHotbar()) {
+                if (!this.silentMode.get()) {
+                    this.warning("Not enough blocks in hotbar to build a cross (need 6)");
+                }
             } else {
-                steps.clear();
-                preparePattern();
+                this.steps.clear();
+                this.preparePattern(); // fills steps
 
-                if (steps.isEmpty()) {
-                    if (!silentMode.get()) warning("No valid build position found");
+                if (this.steps.isEmpty()) {
+                    if (!this.silentMode.get()) this.warning("No valid build position found");
                 } else {
-                    // place everything right now
-                    int placed = 0;
-                    for (PlacementStep step : steps) {
-                        Block current = mc.world.getBlockState(step.pos).getBlock();
+                    // Enqueue only missing blocks (skip blocks already present)
+                    int queued = 0;
+                    for (PlacementStep step : this.steps) {
+                        Block current = this.mc.world.getBlockState(step.pos).getBlock();
                         if (current == step.block) continue;
-                        if (placeStepAirplace(step)) placed++;
+
+                        GriefKit.PLACEMENT.enqueue(step);
+                        ++queued;
                     }
-                    if (!silentMode.get()) info("Placed " + placed + " blocks");
+
+                    if (!this.silentMode.get()) this.info("Queued " + queued + " blocks");
                 }
             }
         }
 
-        lastPlaceKeyDown = placeKeyDown;
+        this.lastPlaceKeyDown = placeKeyDown;
 
-        if (!render.get()) return;
+        // Preview rendering
+        if (!this.render.get()) return;
 
-        // live preview recompute every frame
-        steps.clear();
-        preparePattern();
+        // Always recompute plan for preview so it follows cursor/player position
+        this.steps.clear();
+        this.preparePattern();
+        if (this.steps.isEmpty()) return;
 
-        if (steps.isEmpty()) return;
+        for (PlacementStep step : this.steps) {
+            boolean alreadyPlaced = this.mc.world.getBlockState(step.pos).getBlock() == step.block;
 
-        for (PlacementStep step : steps) {
-            boolean alreadyPlaced = mc.world.getBlockState(step.pos).getBlock() == step.block;
+            SettingColor side = alreadyPlaced ? this.placedSideColor.get() : this.sideColor.get();
+            SettingColor line = alreadyPlaced ? this.placedLineColor.get() : this.lineColor.get();
 
-            SettingColor side = alreadyPlaced ? placedSideColor.get() : sideColor.get();
-            SettingColor line = alreadyPlaced ? placedLineColor.get() : lineColor.get();
-
-            event.renderer.box(step.pos, side, line, shapeMode.get(), 0);
+            event.renderer.box(step.pos, (Color) side, (Color) line, this.shapeMode.get(), 0);
         }
     }
 
+    /**
+     * Needs 6 blocks of the selected type in hotbar, since the cross pattern is 6 blocks.
+     */
     private boolean hasRequiredMaterialsInHotbar() {
-        if (mc.player == null) return false;
+        if (this.mc.player == null) return false;
 
-        PlayerInventory inv = mc.player.getInventory();
-        Block b = block.get();
+        PlayerInventory inv = this.mc.player.getInventory();
+        Item want = this.block.get().asItem();
 
-        int count = 0;
-        for (int i = 0; i < 9; i++) {
-            var stack = inv.getStack(i);
-            if (stack.isEmpty()) continue;
-            if (stack.getItem() == b.asItem()) count += stack.getCount();
-        }
-
-        // 4 stem + 2 arms
-        return count >= 6;
+        return GriefKit.INVENTORY.hasHotbarStackAtLeast(inv, item -> item == want, 6);
     }
 
+    /**
+     * "Obstructed" means the block space is not usable:
+     * - If not air AND not replaceable, don't plan into it.
+     */
     private boolean isObstructed(BlockPos pos) {
-        return !mc.world.getBlockState(pos).isAir()
-            && !mc.world.getBlockState(pos).isReplaceable();
+        return !this.mc.world.getBlockState(pos).isAir() && !this.mc.world.getBlockState(pos).isReplaceable();
     }
 
+    /**
+     * Prevent planning cross blocks inside entities:
+     * - self collision
+     * - other living, non-spectator entities
+     */
     private boolean isEntityIntersecting(BlockPos pos) {
-        if (mc.world == null || mc.player == null) return false;
+        if (this.mc.world == null || this.mc.player == null) return false;
 
         Box box = new Box(pos);
 
-        if (!mc.player.isSpectator() && mc.player.isAlive() && mc.player.getBoundingBox().intersects(box)) {
+        if (!this.mc.player.isSpectator() && this.mc.player.isAlive() && this.mc.player.getBoundingBox().intersects(box)) {
             return true;
         }
 
-        return !mc.world.getOtherEntities(
-            null,
-            box,
-            entity -> !entity.isSpectator() && entity.isAlive()
-        ).isEmpty();
+        return !this.mc.world.getOtherEntities(null, box, entity -> !entity.isSpectator() && entity.isAlive()).isEmpty();
     }
 
+    /** True if any planned position is blocked or has an entity intersecting it. */
     private boolean anyBlockedOrEntity(List<BlockPos> positions) {
         for (BlockPos p : positions) {
-            if (isObstructed(p) || isEntityIntersecting(p)) return true;
+            if (!this.isObstructed(p) && !this.isEntityIntersecting(p)) continue;
+            return true;
         }
         return false;
     }
 
+    // ----------------------
+    // Pattern generation
+    // ----------------------
+
+    /**
+     * Vertical cross:
+     * - stem grows upward: s0,s1,s2,s3
+     * - arms are at s1 (second block), perpendicular to facing
+     *
+     * stemBottom is s0.
+     */
     private List<BlockPos> getVerticalCross(BlockPos stemBottom, Direction facing) {
         BlockPos s0 = stemBottom;
         BlockPos s1 = s0.up();
@@ -266,6 +340,13 @@ public class Cross extends Module {
         return List.of(s0, s1, s2, s3, l, r);
     }
 
+    /**
+     * Horizontal cross:
+     * - stem grows forward: s0,s1,s2,s3 along facing direction
+     * - arms are at s1, perpendicular to facing
+     *
+     * stemStart is s0.
+     */
     private List<BlockPos> getHorizontalCross(BlockPos stemStart, Direction facing) {
         BlockPos s0 = stemStart;
         BlockPos s1 = s0.offset(facing);
@@ -281,14 +362,23 @@ public class Cross extends Module {
         return List.of(s0, s1, s2, s3, l, r);
     }
 
+    /** Pattern valid if all 6 positions are clear. */
     private boolean validateVerticalCross(BlockPos stemBottom, Direction facing) {
-        return !anyBlockedOrEntity(getVerticalCross(stemBottom, facing));
+        return !this.anyBlockedOrEntity(this.getVerticalCross(stemBottom, facing));
     }
 
+    /** Pattern valid if all 6 positions are clear. */
     private boolean validateHorizontalCross(BlockPos stemStart, Direction facing) {
-        return !anyBlockedOrEntity(getHorizontalCross(stemStart, facing));
+        return !this.anyBlockedOrEntity(this.getHorizontalCross(stemStart, facing));
     }
 
+    /**
+     * Converts a BlockHitResult into a reasonable “anchor base”:
+     * - If you hit top or bottom, prefer placing ABOVE the hit block.
+     * - Otherwise place adjacent to the hit face.
+     *
+     * This matches your Wither logic and makes cursor anchoring predictable.
+     */
     private BlockPos computeBaseFromHit(BlockHitResult hit) {
         return switch (hit.getSide()) {
             case UP -> hit.getBlockPos().up();
@@ -297,165 +387,196 @@ public class Cross extends Module {
         };
     }
 
+    /**
+     * Finds the best vertical anchor near cursor:
+     * - scan dx/dz around base
+     * - candidate must validateVerticalCross
+     * - the cross “center” for distance checks is s1 (candidate.up())
+     * - candidate must be within cursorMaxDistance from player eye (via center position)
+     * - choose the candidate whose center is closest to the cursor hit point
+     */
     private BlockPos findBestVerticalAnchor(BlockHitResult hit, Direction facing) {
-        if (mc.world == null || mc.player == null) return null;
+        if (this.mc.world == null || this.mc.player == null) return null;
 
-        BlockPos base = computeBaseFromHit(hit);
+        BlockPos base = this.computeBaseFromHit(hit);
+        int radius = this.cursorSearchRadius.get();
 
-        int radius = cursorSearchRadius.get();
         Vec3d hitVec = hit.getPos();
 
-        double maxDist = cursorMaxDistance.get();
+        double maxDist = this.cursorMaxDistance.get();
         double maxDistSq = maxDist * maxDist;
-        Vec3d eyePos = mc.player.getEyePos();
+
+        Vec3d eyePos = this.mc.player.getEyePos();
 
         BlockPos best = null;
         double bestCursorDistSq = Double.MAX_VALUE;
 
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+            for (int dz = -radius; dz <= radius; ++dz) {
                 BlockPos candidate = base.add(dx, 0, dz);
-                if (!validateVerticalCross(candidate, facing)) continue;
 
-                Vec3d center = Vec3d.ofCenter(candidate.up()); // arm level
+                if (!this.validateVerticalCross(candidate, facing)) continue;
 
+                // center chosen as s1 (second block of the stem)
+                Vec3d center = Vec3d.ofCenter(candidate.up());
+
+                // must be close enough to the player (avoid placing too far)
                 if (center.squaredDistanceTo(eyePos) > maxDistSq) continue;
 
+                // choose the candidate closest to where the cursor hit
                 double cursorDistSq = center.squaredDistanceTo(hitVec);
-                if (cursorDistSq < bestCursorDistSq) {
-                    bestCursorDistSq = cursorDistSq;
-                    best = candidate;
-                }
+                if (cursorDistSq >= bestCursorDistSq) continue;
+
+                bestCursorDistSq = cursorDistSq;
+                best = candidate;
             }
         }
 
         return best;
     }
 
+    /**
+     * Finds the best horizontal anchor near cursor:
+     * - same scan strategy
+     * - uses s1 = candidate.offset(facing) as the “center” reference
+     */
     private BlockPos findBestHorizontalAnchor(BlockHitResult hit, Direction facing) {
-        if (mc.world == null || mc.player == null) return null;
+        if (this.mc.world == null || this.mc.player == null) return null;
 
-        BlockPos base = computeBaseFromHit(hit);
+        BlockPos base = this.computeBaseFromHit(hit);
+        int radius = this.cursorSearchRadius.get();
 
-        int radius = cursorSearchRadius.get();
         Vec3d hitVec = hit.getPos();
 
-        double maxDist = cursorMaxDistance.get();
+        double maxDist = this.cursorMaxDistance.get();
         double maxDistSq = maxDist * maxDist;
-        Vec3d eyePos = mc.player.getEyePos();
+
+        Vec3d eyePos = this.mc.player.getEyePos();
 
         BlockPos best = null;
         double bestCursorDistSq = Double.MAX_VALUE;
 
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+            for (int dz = -radius; dz <= radius; ++dz) {
                 BlockPos candidate = base.add(dx, 0, dz);
-                if (!validateHorizontalCross(candidate, facing)) continue;
 
-                Vec3d center = Vec3d.ofCenter(candidate.offset(facing)); // s1
+                if (!this.validateHorizontalCross(candidate, facing)) continue;
+
+                // center chosen as s1 (the second block forward)
+                Vec3d center = Vec3d.ofCenter(candidate.offset(facing));
 
                 if (center.squaredDistanceTo(eyePos) > maxDistSq) continue;
 
                 double cursorDistSq = center.squaredDistanceTo(hitVec);
-                if (cursorDistSq < bestCursorDistSq) {
-                    bestCursorDistSq = cursorDistSq;
-                    best = candidate;
-                }
+                if (cursorDistSq >= bestCursorDistSq) continue;
+
+                bestCursorDistSq = cursorDistSq;
+                best = candidate;
             }
         }
 
         return best;
     }
 
+    /**
+     * Builds PlacementSteps for vertical cross.
+     *
+     * NOTE: you pass Direction.UP for every step’s supportFace.
+     * That implies PlacementManager will "click from above/up-face" style placement.
+     * If PlacementManager interprets supportFace as "the face of the support block to click",
+     * UP is a stable choice, but it's not necessarily “correct” for all situations.
+     */
     private void buildStepsVertical(BlockPos stemBottom, Direction facing) {
-        steps.clear();
-        Block b = block.get();
-        for (BlockPos p : getVerticalCross(stemBottom, facing)) steps.add(new PlacementStep(p, b));
+        this.steps.clear();
+        Block b = this.block.get();
+
+        for (BlockPos p : this.getVerticalCross(stemBottom, facing)) {
+            this.steps.add(new PlacementStep(p, b, Direction.UP));
+        }
     }
 
+    /**
+     * Builds PlacementSteps for horizontal cross.
+     *
+     * Same note as above: still uses Direction.UP for supportFace.
+     */
     private void buildStepsHorizontal(BlockPos stemStart, Direction facing) {
-        steps.clear();
-        Block b = block.get();
-        for (BlockPos p : getHorizontalCross(stemStart, facing)) steps.add(new PlacementStep(p, b));
+        this.steps.clear();
+        Block b = this.block.get();
+
+        for (BlockPos p : this.getHorizontalCross(stemStart, facing)) {
+            this.steps.add(new PlacementStep(p, b, Direction.UP));
+        }
     }
 
+    /**
+     * Computes the plan (fills steps) using the same priority as Wither:
+     * 1) Elytra mode: anchor 2 blocks behind; prefer vertical then horizontal
+     * 2) Cursor placement: scan around crosshair hit; prefer vertical then horizontal
+     * 3) Default: anchor 2 blocks in front; prefer vertical then horizontal
+     */
     private void preparePattern() {
-        ClientPlayerEntity player = mc.player;
-        if (player == null || mc.world == null) return;
+        ClientPlayerEntity player = this.mc.player;
+        if (player == null || this.mc.world == null) return;
 
         Direction facing = player.getHorizontalFacing();
 
         BlockPos anchor = null;
         CrossOrientation orientation = CrossOrientation.VERTICAL;
 
-        // Elytra mode: override cursor placement; place 2 blocks behind player
-        if (elytraMode.get()) {
+        // 1) Elytra mode anchor (behind you)
+        if (this.elytraMode.get()) {
             BlockPos base = player.getBlockPos().offset(facing.getOpposite(), 2);
 
-            if (validateVerticalCross(base, facing)) {
+            if (this.validateVerticalCross(base, facing)) {
                 anchor = base;
                 orientation = CrossOrientation.VERTICAL;
-            } else if (validateHorizontalCross(base, facing)) {
+            } else if (this.validateHorizontalCross(base, facing)) {
                 anchor = base;
                 orientation = CrossOrientation.HORIZONTAL;
             } else {
-                steps.clear();
+                this.steps.clear();
                 return;
             }
 
-            if (orientation == CrossOrientation.VERTICAL) buildStepsVertical(anchor, facing);
-            else buildStepsHorizontal(anchor, facing);
+            if (orientation == CrossOrientation.VERTICAL) this.buildStepsVertical(anchor, facing);
+            else this.buildStepsHorizontal(anchor, facing);
+
             return;
         }
 
-        if (cursorPlacement.get() && mc.crosshairTarget instanceof BlockHitResult bhr) {
-            anchor = findBestVerticalAnchor(bhr, facing);
+        // 2) Cursor placement (crosshair)
+        if (this.cursorPlacement.get() && this.mc.crosshairTarget instanceof BlockHitResult) {
+            BlockHitResult bhr = (BlockHitResult) this.mc.crosshairTarget;
+
+            anchor = this.findBestVerticalAnchor(bhr, facing);
             orientation = CrossOrientation.VERTICAL;
 
             if (anchor == null) {
-                anchor = findBestHorizontalAnchor(bhr, facing);
+                anchor = this.findBestHorizontalAnchor(bhr, facing);
                 orientation = CrossOrientation.HORIZONTAL;
             }
         }
 
+        // 3) Default placement (in front)
         if (anchor == null) {
             BlockPos base = player.getBlockPos().offset(facing, 2);
 
-            if (validateVerticalCross(base, facing)) {
+            if (this.validateVerticalCross(base, facing)) {
                 anchor = base;
                 orientation = CrossOrientation.VERTICAL;
-            } else if (validateHorizontalCross(base, facing)) {
+            } else if (this.validateHorizontalCross(base, facing)) {
                 anchor = base;
                 orientation = CrossOrientation.HORIZONTAL;
             } else {
-                steps.clear();
+                this.steps.clear();
                 return;
             }
         }
 
-        if (orientation == CrossOrientation.VERTICAL) buildStepsVertical(anchor, facing);
-        else buildStepsHorizontal(anchor, facing);
+        if (orientation == CrossOrientation.VERTICAL) this.buildStepsVertical(anchor, facing);
+        else this.buildStepsHorizontal(anchor, facing);
     }
 
-    private boolean placeStepAirplace(PlacementStep step) {
-        if (mc.player == null || mc.world == null) return false;
-
-        int slot = GriefKit.INVENTORY.findHotbarSlot(
-            mc.player.getInventory(),
-            item -> item == step.block.asItem()
-        );
-
-        if (slot == -1) {
-            if (!silentMode.get()) warning("missing required block in hotbar: " + step.block.getName().getString());
-            return false;
-        }
-
-        GriefKit.INVENTORY.ensureSelectedSlot(mc.player, slot);
-
-        var res = GriefKit.PLACEMENT.airplaceStep(mc, step);
-        if (!res.value() && !silentMode.get()) {
-            if (res.fail() == PlacementManager.Fail.MAINHAND_NOT_BLOCKITEM) warning("main hand does not hold a block item");
-        }
-        return res.value();
-    }
+    private static enum CrossOrientation { VERTICAL, HORIZONTAL }
 }
