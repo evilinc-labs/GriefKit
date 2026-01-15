@@ -1,6 +1,6 @@
 # **GriefKit: Meteor Addon**
 
-GriefKit is an addon for **Meteor Client** that builds withers fast for 2b2t.\
+GriefKit is an addon for **Meteor Client** that builds withers fast for 2b2t.
 
 ------------------------------------------------------------------------
 
