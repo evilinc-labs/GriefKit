@@ -1,6 +1,6 @@
-# **GriefKit: Meteor Addon**
+# **GriefKit**
 
-GriefKit is an addon for **Meteor Client** that builds withers fast for 2b2t.
+GriefKit is an addon for **Meteor Client** that builds withers fast for 2b2t.  This repo is a fork of Leonetic's [GriefKit](https://github.com/evilinc-labs/GriefKit/), purpose was to merge code into one jar for use on 2b and other GrimAC servers.
 
 ------------------------------------------------------------------------
 
@@ -25,7 +25,7 @@ GriefKit is an addon for **Meteor Client** that builds withers fast for 2b2t.
 
 ## 🧩 **Building from Source**
 
-    git clone https://github.com/leonetic/GriefKit
+    git clone https://github.com/evilinc-labs/GriefKit
     cd GriefKit
     ./gradlew build
 
