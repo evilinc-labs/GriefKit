@@ -243,7 +243,7 @@ public class Cross extends Module {
                         ++queued;
                     }
 
-                    if (!this.silentMode.get()) this.info("Queued " + queued + " blocks");
+                    if (!this.silentMode.get()) this.info("Queued cross");
                 }
             }
         }
