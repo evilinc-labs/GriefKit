@@ -1,28 +1,7 @@
-/*
- * Decompiled with CFR 0.152.
- *
- * Could not load the following classes:
- *  meteordevelopment.meteorclient.events.world.TickEvent$Pre
- *  meteordevelopment.meteorclient.settings.BlockSetting$Builder
- *  meteordevelopment.meteorclient.settings.BoolSetting$Builder
- *  meteordevelopment.meteorclient.settings.DoubleSetting$Builder
- *  meteordevelopment.meteorclient.settings.IntSetting$Builder
- *  meteordevelopment.meteorclient.settings.Setting
- *  meteordevelopment.meteorclient.settings.SettingGroup
- *  meteordevelopment.meteorclient.systems.modules.Module
- *  meteordevelopment.orbit.EventHandler
- *  net.minecraft.class_2246
- *  net.minecraft.class_2248
- *  net.minecraft.class_2338
- *  net.minecraft.class_2350
- *  net.minecraft.class_2374
- *  net.minecraft.class_243
- *  net.minecraft.class_3532
- *  net.minecraft.class_746
- */
 package com.griefkit.modules;
 
 import com.griefkit.GriefKit;
+import com.griefkit.helpers.HotbarSupply;
 import com.griefkit.placement.PlacementStep;
 import java.util.Random;
 import meteordevelopment.meteorclient.events.world.TickEvent;
@@ -33,19 +12,24 @@ import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Position;
 import net.minecraft.util.math.Vec3d;
 
-public class HighwayClogger
-    extends Module {
+public class HighwayClogger extends Module {
     private final SettingGroup sgGeneral;
+    private final SettingGroup sgSupply;
+    private final SettingGroup sgIntegration;
+    
     private final Setting<Block> block;
     private final Setting<Integer> backMin;
     private final Setting<Integer> backMax;
@@ -55,12 +39,33 @@ public class HighwayClogger
     private final Setting<Double> moveThreshold;
     private final Setting<Double> chance;
     private final Setting<Boolean> requireReplaceableNow;
+    
+    // Replenishment settings
+    private final Setting<Boolean> autoReplenish;
+    private final Setting<Integer> replenishThreshold;
+    private final Setting<Boolean> lowInventoryWarning;
+    
+    // Integration settings
+    private final Setting<Boolean> huntAddonIntegration;
+    
     private final Random rng;
     private Vec3d lastPos;
+    
+    // Track warned state to prevent spam
+    private boolean hasWarnedLowInventory;
+    
+    // Hunt addon state tracking
+    private boolean huntAddonDetected;
+    private boolean elytraFlyWasEnabled;
+    private boolean freeLookWasEnabled;
 
     public HighwayClogger() {
-        super(GriefKit.CATEGORY, "HighwayClogger", "Randomly clogs behind youu.");
+        super(GriefKit.CATEGORY, "HighwayClogger", "Randomly clogs behind you.");
+        
         this.sgGeneral = this.settings.getDefaultGroup();
+        this.sgSupply = this.settings.createGroup("Supply");
+        this.sgIntegration = this.settings.createGroup("Integration");
+        
         this.block = this.sgGeneral.add(new BlockSetting.Builder()
             .name("block")
             .description("Block to place for clogging.")
@@ -113,20 +118,82 @@ public class HighwayClogger
             .description("Only enqueue if the world is currently replaceable at the target.")
             .defaultValue(true)
             .build());
+        
+        // Supply settings
+        this.autoReplenish = this.sgSupply.add(new BoolSetting.Builder()
+            .name("auto-replenish")
+            .description("Automatically refill the selected block from inventory.")
+            .defaultValue(true)
+            .build());
+        this.replenishThreshold = this.sgSupply.add(new IntSetting.Builder()
+            .name("replenish-threshold")
+            .description("Refill hotbar when block count falls below this value.")
+            .defaultValue(32)
+            .min(1).max(64)
+            .sliderMax(64)
+            .build());
+        this.lowInventoryWarning = this.sgSupply.add(new BoolSetting.Builder()
+            .name("low-inventory-warning")
+            .description("Warn when total block count falls below threshold + 64.")
+            .defaultValue(true)
+            .build());
+        
+        // Integration settings
+        this.huntAddonIntegration = this.sgIntegration.add(new BoolSetting.Builder()
+            .name("hunt-addon-integration")
+            .description("Auto-disable Hunt addon modules when clogger stops placing.")
+            .defaultValue(false)
+            .build());
+        
         this.rng = new Random();
         this.lastPos = null;
+        this.hasWarnedLowInventory = false;
+        
+        // Hunt addon tracking
+        this.huntAddonDetected = false;
+        this.elytraFlyWasEnabled = false;
+        this.freeLookWasEnabled = false;
     }
 
+    @Override
     public void onActivate() {
         this.lastPos = null;
+        this.hasWarnedLowInventory = false;
+        
         if (this.mc.player == null || this.mc.world == null) {
             this.warning("Player/world not loaded", new Object[0]);
             this.toggle();
+            return;
+        }
+        
+        // Module enabled notification
+        ChatUtils.info("HighwayClogger enabled");
+        
+        // Check if replenishment is possible on activation
+        Block targetBlock = this.block.get();
+        if (!HotbarSupply.canReplenish(targetBlock, this.replenishThreshold.get())) {
+            this.warning("Insufficient blocks in inventory (need " + this.replenishThreshold.get() + ")", new Object[0]);
+            // Don't toggle off - let user decide, but warn them
+        }
+        
+        // Hunt addon integration - capture state on enable
+        if (this.huntAddonIntegration.get()) {
+            this.captureHuntAddonState();
         }
     }
 
+    @Override
     public void onDeactivate() {
         this.lastPos = null;
+        this.hasWarnedLowInventory = false;
+        
+        // Module disabled notification
+        ChatUtils.info("HighwayClogger disabled");
+        
+        // Hunt addon integration - restore state on disable if clogger isn't placing
+        if (this.huntAddonIntegration.get() && this.huntAddonDetected) {
+            this.restoreHuntAddonState();
+        }
     }
 
     @EventHandler
@@ -134,13 +201,58 @@ public class HighwayClogger
         if (this.mc.player == null || this.mc.world == null) {
             return;
         }
+        
         ClientPlayerEntity p = this.mc.player;
+        
+        // Handle replenishment BEFORE scheduling placements
+        if (this.autoReplenish.get()) {
+            Block targetBlock = this.block.get();
+            
+            // Check if we can replenish
+            if (!HotbarSupply.canReplenish(targetBlock)) {
+                // No blocks available - don't schedule placements
+                // If Hunt integration is enabled, disable flight modules
+                if (this.huntAddonIntegration.get() && this.huntAddonDetected) {
+                    this.disableHuntModules();
+                }
+                return;
+            }
+            
+            // Low inventory warning (threshold + 64 = at least 1 stack remaining)
+            if (this.lowInventoryWarning.get() && !this.hasWarnedLowInventory) {
+                int totalCount = HotbarSupply.getTotalCount(targetBlock);
+                int warningThreshold = this.replenishThreshold.get() + 64;
+                
+                if (totalCount < warningThreshold) {
+                    this.hasWarnedLowInventory = true;
+                    ChatUtils.warning("Low inventory: " + totalCount + " blocks remaining");
+                    
+                    // Play warning sound if player exists
+                    if (this.mc.player != null) {
+                        this.mc.player.playSound(
+                            SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(),
+                            1.0f,
+                            1.0f
+                        );
+                    }
+                }
+            }
+            
+            // Ensure block is in hotbar and refill if needed
+            HotbarSupply.ensureHotbarStack(
+                HotbarSupply.blockIs(targetBlock),
+                this.replenishThreshold.get(),
+                false // Don't auto-select the slot
+            );
+        }
+        
         Vec3d now = p.getPos();
         if (this.lastPos == null) {
             this.lastPos = now;
             this.scheduleBatch(p, (Integer)this.placementsPerMove.get());
             return;
         }
+        
         double moved = now.distanceTo(this.lastPos);
         if (moved >= (Double)this.moveThreshold.get()) {
             this.lastPos = now;
@@ -170,6 +282,7 @@ public class HighwayClogger
         int w = (Integer)this.halfWidth.get();
         int h = (Integer)this.height.get();
         Block placeBlock = (Block)this.block.get();
+        
         for (int i = 0; i < count; ++i) {
             if (this.rng.nextDouble() > (Double)this.chance.get()) continue;
             int back = this.randInt(minB, maxB);
@@ -177,7 +290,10 @@ public class HighwayClogger
             int up = h <= 1 ? 0 : this.randInt(0, h - 1);
             Vec3d offset = behind.multiply((double)back).add(right.multiply((double)lateral)).add(0.0, (double)up, 0.0);
             BlockPos target = BlockPos.ofFloored((Position)new Vec3d((double)base.getX() + 0.5, (double)base.getY(), (double)base.getZ() + 0.5).add(offset));
-            if (target.getX() == base.getX() && target.getZ() == base.getZ() && target.getY() == base.getY() || ((Boolean)this.requireReplaceableNow.get()).booleanValue() && !this.mc.world.getBlockState(target).isReplaceable()) continue;
+            
+            if (target.getX() == base.getX() && target.getZ() == base.getZ() && target.getY() == base.getY()) continue;
+            if (((Boolean)this.requireReplaceableNow.get()).booleanValue() && !this.mc.world.getBlockState(target).isReplaceable()) continue;
+            
             GriefKit.PLACEMENT.enqueue(new PlacementStep(target, placeBlock, Direction.UP));
         }
     }
@@ -190,5 +306,101 @@ public class HighwayClogger
         int hi = Math.max(a, b);
         return lo + this.rng.nextInt(hi - lo + 1);
     }
-}
 
+    // ----- Hunt Addon Integration -----
+    
+    /**
+     * Check if Hunt addon is loaded by looking for its main class.
+     * Returns true if com.stash.hunt.Addon is present.
+     */
+    private boolean isHuntAddonLoaded() {
+        try {
+            Class.forName("com.stash.hunt.Addon");
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+    
+    /**
+     * Capture the state of Hunt addon modules when clogger is enabled.
+     * Only acts if Hunt addon is detected.
+     */
+    private void captureHuntAddonState() {
+        this.huntAddonDetected = false;
+        this.elytraFlyWasEnabled = false;
+        this.freeLookWasEnabled = false;
+        
+        // First check if Hunt addon is loaded
+        if (!this.isHuntAddonLoaded()) {
+            return;
+        }
+        
+        try {
+            // Check for Hunt addon's ElytraFlyPlusPlus module
+            Module elytraFly = Modules.get().get("elytraflyplusplus");
+            if (elytraFly != null) {
+                this.huntAddonDetected = true;
+                this.elytraFlyWasEnabled = elytraFly.isActive();
+            }
+            
+            // Check for baseline Meteor's Freelook module
+            Module freeLook = Modules.get().get("freelook");
+            if (freeLook != null) {
+                this.freeLookWasEnabled = freeLook.isActive();
+            }
+        } catch (Exception e) {
+            // Hunt addon not present or modules not found - silent fail
+        }
+    }
+    
+    /**
+     * Restore Hunt addon module states when clogger is disabled.
+     * Only restores if modules were previously enabled.
+     */
+    private void restoreHuntAddonState() {
+        try {
+            // Restore ElytraFlyPlusPlus if it was enabled
+            if (this.elytraFlyWasEnabled) {
+                Module elytraFly = Modules.get().get("elytraflyplusplus");
+                if (elytraFly != null && !elytraFly.isActive()) {
+                    elytraFly.toggle();
+                }
+            }
+            
+            // Restore Freelook if it was enabled
+            if (this.freeLookWasEnabled) {
+                Module freeLook = Modules.get().get("freelook");
+                if (freeLook != null && !freeLook.isActive()) {
+                    freeLook.toggle();
+                }
+            }
+        } catch (Exception e) {
+            // Silent fail if modules not found
+        }
+    }
+    
+    /**
+     * Disable Hunt addon modules when clogger stops placing.
+     * Called when we run out of blocks and can't continue.
+     */
+    private void disableHuntModules() {
+        try {
+            // Disable ElytraFlyPlusPlus if active
+            Module elytraFly = Modules.get().get("elytraflyplusplus");
+            if (elytraFly != null && elytraFly.isActive()) {
+                elytraFly.toggle();
+                ChatUtils.info("Disabled ElytraFlyPlusPlus (out of blocks)");
+            }
+            
+            // Disable Freelook if active
+            Module freeLook = Modules.get().get("freelook");
+            if (freeLook != null && freeLook.isActive()) {
+                freeLook.toggle();
+                ChatUtils.info("Disabled Freelook (out of blocks)");
+            }
+        } catch (Exception e) {
+            // Silent fail if modules not found
+        }
+    }
+}
