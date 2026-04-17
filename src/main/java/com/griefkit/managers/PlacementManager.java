@@ -299,7 +299,10 @@ public class PlacementManager {
             // We’re in a hotbar swap session now; just ensure we’re holding the right slot.
             this.inventory.ensureSelectedSlot(mc.player, neededSlot);
             // If selection didn't "stick" (weird client/server lag), bail out this tick.
+            //? if >=1.21.5 {
             if (mc.player.getInventory().getSelectedSlot() != neededSlot) return;
+            //?} else
+            /*if (mc.player.getInventory().selectedSlot != neededSlot) return;*/
 
             this.queue.pollFirst();
 
