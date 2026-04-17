@@ -25,7 +25,7 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Position;
 import net.minecraft.util.math.Vec3d;
 
-public class HighwayClogger extends Module {
+public class eBounceClogger extends Module {
     private final SettingGroup sgGeneral;
     private final SettingGroup sgSupply;
     private final SettingGroup sgIntegration;
@@ -59,8 +59,8 @@ public class HighwayClogger extends Module {
     private boolean elytraFlyWasEnabled;
     private boolean freeLookWasEnabled;
 
-    public HighwayClogger() {
-        super(GriefKit.CATEGORY, "HighwayClogger", "Randomly clogs behind you.");
+    public eBounceClogger() {
+        super(GriefKit.CATEGORY, "ebounce-clogger", "Randomly clogs behind you while flying. Useful for eBounce highway travel.");
         
         this.sgGeneral = this.settings.getDefaultGroup();
         this.sgSupply = this.settings.createGroup("Supply");
@@ -167,7 +167,7 @@ public class HighwayClogger extends Module {
         }
         
         // Module enabled notification
-        ChatUtils.info("HighwayClogger enabled");
+        ChatUtils.info("eBounceClogger enabled");
         
         // Check if replenishment is possible on activation
         Block targetBlock = this.block.get();
@@ -188,7 +188,7 @@ public class HighwayClogger extends Module {
         this.hasWarnedLowInventory = false;
         
         // Module disabled notification
-        ChatUtils.info("HighwayClogger disabled");
+        ChatUtils.info("eBounceClogger disabled");
         
         // Hunt addon integration - restore state on disable if clogger isn't placing
         if (this.huntAddonIntegration.get() && this.huntAddonDetected) {
@@ -246,7 +246,10 @@ public class HighwayClogger extends Module {
             );
         }
         
-        Vec3d now = p.getPos();
+        //? if >=1.21.11 {
+        Vec3d now = p.getEntityPos();
+        //?} else
+        /*Vec3d now = p.getPos();*/
         if (this.lastPos == null) {
             this.lastPos = now;
             this.scheduleBatch(p, (Integer)this.placementsPerMove.get());

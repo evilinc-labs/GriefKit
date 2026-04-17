@@ -5,7 +5,8 @@
   "name": "GriefKit",
   "description": "Suite of utilities for griefing, developed with 2b2t in mind.",
   "authors": [
-    "Leonetic"
+    "Leonetic",
+    "King-Geedoraah"
   ],
   "contact": {
     "sources": "https://discord.gg/HAQ6CnqGpE"
@@ -25,7 +26,7 @@
   },
   "depends": {
     "java": ">=21",
-    "minecraft": ["${mc_version}", "1.21.7", "1.21.6"],
+    "minecraft": "${mc_version}",
     "meteor-client": "*"
   }
 }

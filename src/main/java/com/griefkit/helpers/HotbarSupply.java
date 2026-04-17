@@ -39,10 +39,16 @@ public final class HotbarSupply {
 
             int dest = findEmptyHotbarSlot();
             if (dest == -1) dest = findSmallestHotbarStack(matcher);
+            //? if >=1.21.5 {
             if (dest == -1) dest = inv.getSelectedSlot();
+            //?} else
+            /*if (dest == -1) dest = inv.selectedSlot;*/
 
             InvUtils.move().from(bestInv).toHotbar(dest);
+            //? if >=1.21.5 {
             if (selectSlot) inv.setSelectedSlot(dest);
+            //?} else
+            /*if (selectSlot) inv.selectedSlot = dest;*/
             return dest;
         }
 
@@ -57,7 +63,10 @@ public final class HotbarSupply {
             }
         }
 
+        //? if >=1.21.5 {
         if (selectSlot) inv.setSelectedSlot(slot);
+        //?} else
+        /*if (selectSlot) inv.selectedSlot = slot;*/
         return slot;
     }
 

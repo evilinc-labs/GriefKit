@@ -131,11 +131,17 @@ public class InventoryManager {
 
         PlayerInventory inv = player.getInventory();
 
+        //? if >=1.21.5 {
         int selected = inv.getSelectedSlot();
         if (selected != slot) {
             // Update local selection immediately.
             inv.setSelectedSlot(slot);
         }
+        //?} else
+        /*int selected = inv.selectedSlot;
+        if (selected != slot) {
+            inv.selectedSlot = slot;
+        }*/
 
         long now = System.currentTimeMillis();
 
@@ -177,7 +183,10 @@ public class InventoryManager {
         synchronized (this.hotbarSwapLock) {
             if (!this.hotbarSwapActive) {
                 this.hotbarSwapActive = true;
+                //? if >=1.21.5 {
                 this.hotbarOriginalSlot = player.getInventory().getSelectedSlot();
+                //?} else
+                /*this.hotbarOriginalSlot = player.getInventory().selectedSlot;*/
             }
         }
 
