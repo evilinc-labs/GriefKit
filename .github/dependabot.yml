@@ -1,0 +1,51 @@
+# Dependabot keeps both GitHub Actions action versions and Gradle dependencies
+# up-to-date automatically by opening pull requests against the master branch.
+version: 2
+
+updates:
+  # ── GitHub Actions ──────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci(actions)"
+    groups:
+      # Bump all actions in a single PR when possible.
+      actions-all:
+        patterns:
+          - "*"
+
+  # ── Gradle (root project) ───────────────────────────────────────────────────
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: UTC
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - gradle
+    commit-message:
+      prefix: "build(deps)"
+    # Keep Minecraft / Fabric / Meteor dependencies grouped to make review
+    # easier — a single Minecraft bump touches several related artifacts.
+    groups:
+      fabric-loader:
+        patterns:
+          - "net.fabricmc:fabric-loader"
+      fabric-api:
+        patterns:
+          - "net.fabricmc.fabric-api:*"
+      meteor:
+        patterns:
+          - "meteordevelopment:*"

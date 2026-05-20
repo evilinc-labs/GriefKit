@@ -1,0 +1,39 @@
+name: Dependency Review
+
+# Runs on every pull request and inspects the dependency diff between the base
+# and head commits.  Any newly introduced dependency with a known CVE, an
+# incompatible license, or a suspicious change-type (e.g. moved to a different
+# registry / renamed package) will fail the check and block merging.
+on:
+  pull_request:
+    branches:
+      - master
+      - 'release/**'
+
+permissions:
+  contents: read
+  pull-requests: write   # required to post a summary comment on the PR
+
+jobs:
+  dependency-review:
+    name: Review dependency changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          # Fail on any vulnerability severity level.
+          fail-on-severity: low
+          # Block dependencies that carry these SPDX license identifiers.
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+          # Post a detailed comment on the PR summarising what changed.
+          comment-summary-in-pr: always
+          # Warn when a transitive dependency is updated without an explicit
+          # change to the lockfile / version catalogue.
+          warn-only: false

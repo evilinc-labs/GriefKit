@@ -1,0 +1,66 @@
+name: CodeQL Analysis
+
+# Runs CodeQL SAST on every push to protected branches and on pull requests.
+# Also runs on a weekly schedule so newly disclosed vulnerabilities are caught
+# even when no code changes are made.
+on:
+  push:
+    branches:
+      - master
+      - 'release/**'
+  pull_request:
+    branches:
+      - master
+      - 'release/**'
+  schedule:
+    # 03:17 UTC every Monday
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF results
+  actions: read            # required for private repos
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - java-kotlin   # covers all .java source files
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Initialise the CodeQL tools and create a database.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Use the extended security query suite for broader coverage.
+          queries: security-extended,security-and-quality
+
+      # Build the project so CodeQL can trace compilation and populate the DB.
+      # chiseledBuild compiles every supported Minecraft version in one pass.
+      - name: Build project for CodeQL
+        run: ./gradlew chiseledBuild --no-daemon
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'
