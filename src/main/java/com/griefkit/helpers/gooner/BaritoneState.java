@@ -35,7 +35,7 @@ public final class BaritoneState {
 
     /**
      * General flag: true when ANY module is using Baritone for ground walking.
-     * Set by ElytraBot (WALKING_FINAL), HighwayGoonerV2 (stepRelative), etc.
+     * Set by ElytraBot (WALKING_FINAL), LazyClogger/HighwayClogger (stepRelative), etc.
      * Read by PacketMineInteractionMixin (skip SpeedMine, suppress cancelBlockBreaking)
      * and AutoArmor (suppress double-jump elytra equip).
      */

@@ -6,7 +6,8 @@ import com.griefkit.managers.InventoryManager;
 import com.griefkit.managers.PlacementManager;
 import com.griefkit.modules.Cross;
 import com.griefkit.modules.GoonerWither;
-import com.griefkit.modules.HighwayGoonerV2;
+import com.griefkit.modules.LazyClogger;
+import com.griefkit.modules.HighwayClogger;
 import com.griefkit.modules.DoubleMine;
 import com.griefkit.modules.PacketMine;
 import com.griefkit.modules.Wither;
@@ -51,7 +52,8 @@ public class GriefKit extends MeteorAddon {
         Modules.get().add(new DoubleMine());
         Modules.get().add(new PacketMine());
         Modules.get().add(new GoonerWither());
-        Modules.get().add(new HighwayGoonerV2());
+        Modules.get().add(new LazyClogger());
+        Modules.get().add(new HighwayClogger());
 
         Hud.get().register(WitherCounter.INFO);
         Hud.get().register(WitherPlacements.INFO);

@@ -154,7 +154,7 @@ public class GoonerWither extends Module {
     public boolean lastPlacementSucceeded = false;
 
     public GoonerWither() {
-        super(GriefKit.HELPERS, "gooner-wither", "INSTANT wither air-place via hotbar-swap. Placement is instantaneous — the whole wither is sent in one tick. Used by HighwayGoonerV2 as its wither engine, but also works standalone: toggle on, it air-places a wither in front of you and toggles itself off.");
+        super(GriefKit.HELPERS, "gooner-wither", "INSTANT wither air-place via hotbar-swap. Placement is instantaneous — the whole wither is sent in one tick. Used by LazyClogger and HighwayClogger as their wither engine, but also works standalone: toggle on, it air-places a wither in front of you and toggles itself off.");
     }
 
     public int getSoulSandThreshold() { return soulSandThreshold.get(); }

@@ -78,3 +78,19 @@ tasks {
         options.compilerArgs.add("-Xlint:unchecked")
     }
 }
+
+// Deploy: copy the remapped JAR to the Prism Launcher mods directory for this version.
+// Deploy path is configured per-version in versions/<ver>/gradle.properties via deploy_path.
+val deployPath = (properties["deploy_path"] as String?)?.trim()
+if (!deployPath.isNullOrBlank()) {
+    tasks.register<Copy>("deploy") {
+        group = "griefkit"
+        description = "Install the remapped JAR into the configured Prism Launcher mods directory."
+        dependsOn(tasks.named("remapJar"))
+        from(tasks.named("remapJar").map { (it as AbstractArchiveTask).archiveFile })
+        into(deployPath)
+        doLast {
+            println("Deployed ${project.base.archivesName.get()}-${project.version} → $deployPath")
+        }
+    }
+}

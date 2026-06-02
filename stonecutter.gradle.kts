@@ -8,3 +8,9 @@ stonecutter registerChiseled tasks.register("chiseledBuild", stonecutter.chisele
     group = "project"
     ofTask("build")
 }
+
+// Build all versions then deploy each JAR to its configured Prism mods directory.
+stonecutter registerChiseled tasks.register("chiseledDeploy", stonecutter.chiseled) {
+    group = "griefkit"
+    ofTask("deploy")
+}
