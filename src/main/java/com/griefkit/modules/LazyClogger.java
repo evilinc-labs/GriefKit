@@ -66,9 +66,9 @@ import net.minecraft.util.math.Vec3d;
  * Stripped from anarchy port: restock, echest farming, speedmine, anti-nuker,
  * license gates, anarchy telemetry.
  */
-public class HighwayGoonerV2 extends Module {
+public class LazyClogger extends Module {
     private static final MinecraftClient mc = MinecraftClient.getInstance();
-    public static HighwayGoonerV2 INSTANCE;
+    public static LazyClogger INSTANCE;
 
     private static final long BARITONE_RECHECK_MS = 2000;
 
@@ -474,9 +474,9 @@ public class HighwayGoonerV2 extends Module {
     // FreeLook state preservation
     private boolean freeLookToggledByUs = false;
 
-    public HighwayGoonerV2() {
-        super(GriefKit.CATEGORY, "highway-gooner-v2",
-            "Smart highway clogger — detects highway, places clog patterns via air-place, walks via Baritone, triggers GoonerWither every N blocks.");
+    public LazyClogger() {
+        super(GriefKit.CATEGORY, "lazy-clogger",
+            "Smart highway clogger — auto-detects highway, generates clog patterns, air-places via Baritone. Formerly HighwayGoonerV2.");
         INSTANCE = this;
     }
 
@@ -486,7 +486,7 @@ public class HighwayGoonerV2 extends Module {
 
     private void rescanHighway() {
         if (mc.player == null || mc.world == null) {
-            ChatUtils.warning("HighwayGoonerV2: cannot scan — player/world not loaded.");
+            ChatUtils.warning("LazyClogger: cannot scan — player/world not loaded.");
             return;
         }
 
@@ -494,14 +494,14 @@ public class HighwayGoonerV2 extends Module {
                 detectRingRoads.get(), detectDiamondRoads.get());
         if (detectedHighway != null) {
             nearbyHighways = HighwayDetector.scanNearbyHighways(mc, detectedHighway, 100);
-            ChatUtils.info("HighwayGoonerV2: detected %s", detectedHighway);
+            ChatUtils.info("LazyClogger: detected %s", detectedHighway);
             if (!nearbyHighways.isEmpty()) {
-                ChatUtils.info("HighwayGoonerV2: found %d nearby highway(s).", nearbyHighways.size());
+                ChatUtils.info("LazyClogger: found %d nearby highway(s).", nearbyHighways.size());
             }
             computeJunctionPoints();
         } else {
             nearbyHighways.clear();
-            ChatUtils.warning("HighwayGoonerV2: no highway detected (confidence below %.0f%%). Reposition and try again.",
+            ChatUtils.warning("LazyClogger: no highway detected (confidence below %.0f%%). Reposition and try again.",
                     detectionConfidence.get() * 100);
         }
     }
@@ -541,9 +541,9 @@ public class HighwayGoonerV2 extends Module {
             if (detectedHighway != null) {
                 nearbyHighways = HighwayDetector.scanNearbyHighways(mc, detectedHighway, 100);
                 initialFacing = detectedHighway.facingDirection;
-                ChatUtils.info("HighwayGoonerV2: detected %s", detectedHighway);
+                ChatUtils.info("LazyClogger: detected %s", detectedHighway);
                 if (!nearbyHighways.isEmpty()) {
-                    ChatUtils.info("HighwayGoonerV2: %d nearby highway(s).", nearbyHighways.size());
+                    ChatUtils.info("LazyClogger: %d nearby highway(s).", nearbyHighways.size());
                 }
             } else {
                 nearbyHighways.clear();
@@ -624,7 +624,7 @@ public class HighwayGoonerV2 extends Module {
             }
         }
 
-        ChatUtils.info("HighwayGoonerV2 enabled");
+        ChatUtils.info("LazyClogger enabled");
     }
 
     @Override
@@ -655,7 +655,7 @@ public class HighwayGoonerV2 extends Module {
         BaritoneState.pathing = false;
         BaritoneState.needsPathingCheck = false;
 
-        ChatUtils.info("HighwayGoonerV2 disabled");
+        ChatUtils.info("LazyClogger disabled");
     }
 
     // === Step Plan Generation ===
@@ -1134,14 +1134,14 @@ public class HighwayGoonerV2 extends Module {
             realignAttempts = 0;
 
             if (next.isCorner) {
-                ChatUtils.info("HighwayGoonerV2: approaching corner at %s", next.pos.toShortString());
+                ChatUtils.info("LazyClogger: approaching corner at %s", next.pos.toShortString());
             } else {
                 TurnPolicy policy = turnPolicy.get();
                 if (policy == TurnPolicy.CONTINUE_STRAIGHT) {
                     nextJunctionIndex++;
                     return false;
                 }
-                ChatUtils.info("HighwayGoonerV2: approaching junction at %s (%s dist=%d)",
+                ChatUtils.info("LazyClogger: approaching junction at %s (%s dist=%d)",
                         next.pos.toShortString(), next.crossingCategory, (int) next.crossingDist);
             }
 
@@ -1252,7 +1252,7 @@ public class HighwayGoonerV2 extends Module {
         if (walkTicks-- > 0) return;
 
         if (turnTarget == null) {
-            ChatUtils.warning("HighwayGoonerV2: turn failed — no valid target. Continuing straight.");
+            ChatUtils.warning("LazyClogger: turn failed — no valid target. Continuing straight.");
             detectedHighway = preJunctionHighway;
             state = State.WALKING;
             startBaritoneWalk();
@@ -1278,7 +1278,7 @@ public class HighwayGoonerV2 extends Module {
         if (turnAttempts > 200) {
             BaritoneState.groundWalking = false;
             try { BaritoneInterface.cancelAll(); } catch (Throwable ignored) {}
-            ChatUtils.warning("HighwayGoonerV2: turn timeout — resuming original highway.");
+            ChatUtils.warning("LazyClogger: turn timeout — resuming original highway.");
             detectedHighway = preJunctionHighway;
             state = State.WALKING;
             startBaritoneWalk();
@@ -1307,11 +1307,11 @@ public class HighwayGoonerV2 extends Module {
             computeJunctionPoints();
             generateNextStepPlan();
             state = State.BUILDING;
-            ChatUtils.info("HighwayGoonerV2: turned onto %s", detectedHighway);
+            ChatUtils.info("LazyClogger: turned onto %s", detectedHighway);
         } else {
             realignAttempts++;
             if (realignAttempts >= 3) {
-                ChatUtils.warning("HighwayGoonerV2: realign failed after 3 attempts — resuming original highway.");
+                ChatUtils.warning("LazyClogger: realign failed after 3 attempts — resuming original highway.");
                 detectedHighway = preJunctionHighway;
                 computeJunctionPoints();
                 state = State.WALKING;
@@ -1664,7 +1664,7 @@ public class HighwayGoonerV2 extends Module {
         if (logOnChange && baritoneAvailable != prev) {
             if (baritoneAvailable) {
                 baritoneWarned = false;
-                ChatUtils.info("HighwayGoonerV2: Baritone detected — auto-walk enabled.");
+                ChatUtils.info("LazyClogger: Baritone detected — auto-walk enabled.");
             } else {
                 if (!baritoneWarned) {
                     baritoneWarned = true;
