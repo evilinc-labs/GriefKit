@@ -1,6 +1,6 @@
 # **GriefKit**
 
-GriefKit is an addon for **Meteor Client** that builds withers fast for 2b2t.  This repo is a fork of Leonetic's [GriefKit](https://github.com/evilinc-labs/GriefKit/), purpose was to merge code into one jar for use on 2b and other GrimAC servers.
+GriefKit is an addon for **Meteor Client** that builds withers fast for 2b2t.  This repo is a fork of Leonetic's [GriefKit](https://github.com/evilinc-labs/GriefKit/), purpose was to merge code into one jar for use on 2b and other servers.
 
 ![Downloads](https://img.shields.io/github/downloads/evilinc-labs/GriefKit/total.svg)
 
